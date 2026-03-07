@@ -16,3 +16,13 @@ Config.ChatFeedback = true
 
 -- Prefix shown in all console / log output.
 Config.LogPrefix = '[chilllixhub-inject]'
+
+-- Record event-handler registrations made by injected code so they can be
+-- inspected with /inject_triggers and /inject_triggers_local.
+Config.TrackTriggers = true
+
+-- Maximum number of injection records kept in memory (server and client each).
+Config.HistoryMax = 50
+
+-- Number of entries shown per page in /inject_history and /inject_history_local.
+Config.HistoryPage = 10
