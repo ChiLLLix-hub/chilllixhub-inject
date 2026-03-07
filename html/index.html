@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ChiLLLix Injector</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div id="app" class="hidden">
+
+        <!-- ── Header ──────────────────────────────────────────────── -->
+        <header class="panel-header">
+            <div class="header-left">
+                <span class="logo">⚡</span>
+                <span class="title">ChiLLLix <strong>Injector</strong></span>
+                <span class="badge">dev</span>
+            </div>
+            <div class="header-right">
+                <button id="btn-close" class="icon-btn" title="Close (Escape)">✕</button>
+            </div>
+        </header>
+
+        <!-- ── Main layout ──────────────────────────────────────────── -->
+        <main class="panel-body">
+
+            <!-- LEFT: editor + controls + output -->
+            <section class="editor-col">
+
+                <!-- Target selector -->
+                <div class="target-bar">
+                    <span class="label">Target</span>
+                    <div class="target-group" id="target-group">
+                        <button class="target-btn active" data-target="local"  title="Run on your own client only">Local</button>
+                        <button class="target-btn"        data-target="server" title="Run on the server">Server</button>
+                        <button class="target-btn"        data-target="client" title="Run on a specific player's client">Client</button>
+                        <button class="target-btn"        data-target="all"    title="Run on every connected client">All Clients</button>
+                    </div>
+                    <input
+                        id="player-id"
+                        class="player-id hidden"
+                        type="number"
+                        min="1"
+                        placeholder="Player ID"
+                        title="Server ID of the target player"
+                    />
+                </div>
+
+                <!-- Code editor -->
+                <div class="editor-wrap">
+                    <div class="editor-label">
+                        <span>Lua Code</span>
+                        <button id="btn-clear-code" class="small-btn" title="Clear editor">Clear</button>
+                    </div>
+                    <textarea
+                        id="code-input"
+                        class="code-editor"
+                        spellcheck="false"
+                        autocorrect="off"
+                        autocapitalize="off"
+                        placeholder="-- Paste or type your Lua snippet here…
+-- Press Ctrl+Enter to execute."
+                    ></textarea>
+                </div>
+
+                <!-- Footer controls -->
+                <div class="editor-footer">
+                    <span id="char-counter" class="char-counter">0 / 8192</span>
+                    <div class="footer-actions">
+                        <button id="btn-execute" class="exec-btn" title="Execute (Ctrl+Enter)">
+                            <span class="exec-icon">▶</span> Execute
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Output log -->
+                <div class="output-section">
+                    <div class="section-header">
+                        <span>Output</span>
+                        <button id="btn-clear-output" class="small-btn">Clear</button>
+                    </div>
+                    <div id="output-log" class="output-log">
+                        <div class="output-placeholder">Results will appear here…</div>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- RIGHT: history -->
+            <aside class="history-col">
+                <div class="section-header">
+                    <span>History</span>
+                    <button id="btn-refresh-history" class="small-btn" title="Refresh history">↻</button>
+                </div>
+                <div id="history-list" class="history-list">
+                    <div class="history-placeholder">No injections yet.</div>
+                </div>
+            </aside>
+
+        </main>
+
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

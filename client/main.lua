@@ -3,6 +3,7 @@
 --
 -- Commands (local, unrestricted – only affects the local player):
 --   /inject_local            <lua code>  – execute a Lua snippet on this client
+--   /inject_ui                           – toggle the NUI injector panel
 --
 -- Network events (triggered by server):
 --   chilllixhub-inject:exec              – execute a Lua snippet on this client
@@ -258,4 +259,105 @@ RegisterCommand('inject_active_local', function(source, args)
         feedback('No injection has run yet in this session.')
     end
 end, false)
+
+-- ─── NUI panel ───────────────────────────────────────────────────────────────
+
+if not Config.NUIEnabled then return end
+
+local nuiOpen = false
+
+--- Open or close the NUI injector panel.
+local function setNuiVisible(visible)
+    nuiOpen = visible
+    SetNuiFocus(visible, visible)
+    SendNUIMessage({
+        action       = 'setVisible',
+        visible      = visible,
+        maxCodeLength = Config.MaxCodeLength,
+    })
+end
+
+--- Send a list of history records to the NUI.
+local function sendHistoryToNui()
+    -- Build a JSON-serialisable copy (skip the metatable / function values).
+    local data = {}
+    for _, r in ipairs(InjectHistory) do
+        data[#data + 1] = {
+            id   = r.id,
+            time = r.time,
+            type = r.type,
+            code = r.code,
+        }
+    end
+    SendNUIMessage({ action = 'updateHistory', history = data })
+end
+
+-- /inject_ui  – toggle the NUI panel (also registered as a key mapping).
+RegisterCommand('inject_ui', function()
+    setNuiVisible(not nuiOpen)
+end, false)
+
+-- Default key mapping: F6 (user can rebind in FiveM key-binding settings).
+RegisterKeyMapping('inject_ui', 'Toggle ChiLLLix Injector UI', 'keyboard', 'F6')
+
+-- NUI → Lua: close button / Escape key.
+RegisterNUICallback('close', function(_, cb)
+    setNuiVisible(false)
+    cb({})
+end)
+
+-- NUI → Lua: request current history.
+RegisterNUICallback('getHistory', function(_, cb)
+    local data = {}
+    for _, r in ipairs(InjectHistory) do
+        data[#data + 1] = {
+            id   = r.id,
+            time = r.time,
+            type = r.type,
+            code = r.code,
+        }
+    end
+    cb({ history = data })
+end)
+
+-- NUI → Lua: execute code.
+-- data.type    : 'local' | 'server' | 'client' | 'all'
+-- data.code    : Lua source string
+-- data.targetId: (integer, for type == 'client') target server-id
+RegisterNUICallback('execute', function(data, cb)
+    local code = data and data.code
+    if type(code) ~= 'string' or #code == 0 then
+        cb({ ok = false, msg = 'No code provided.' })
+        return
+    end
+    if #code > Config.MaxCodeLength then
+        cb({ ok = false, msg = ('Code too long (max %d chars).'):format(Config.MaxCodeLength) })
+        return
+    end
+
+    local validTypes = { server = true, client = true, all = true }
+    local injectType = validTypes[data.type] and data.type or 'local'
+
+    if injectType == 'local' then
+        -- Execute on this client immediately and return the result.
+        local record = newRecord('local', code)
+        local ok, result = execLuaTracked(code, record)
+        sendHistoryToNui()
+        if ok then
+            cb({ ok = true,  msg = ('Local inject OK.'), id = record.id })
+        else
+            cb({ ok = false, msg = result })
+        end
+    else
+        -- Ask the server to handle server / client / all injection.
+        local targetId = (injectType == 'client') and tonumber(data.targetId) or nil
+        TriggerServerEvent('chilllixhub-inject:nui_inject', injectType, code, targetId)
+        cb({ ok = true, msg = ('Sent to server (target: %s).'):format(injectType) })
+    end
+end)
+
+-- Receive execution feedback from the server for NUI-triggered injections.
+AddEventHandler('chilllixhub-inject:nui_result', function(ok, msg, id)
+    SendNUIMessage({ action = 'addResult', ok = ok, msg = msg, id = id })
+end)
 

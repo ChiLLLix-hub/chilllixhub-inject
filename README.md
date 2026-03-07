@@ -1,7 +1,7 @@
 # chilllixhub-inject
 
 A **FiveM resource** that provides a Lua code injector for development and testing purposes.  
-It lets authorised players (and the server console) execute arbitrary Lua snippets on the server, on a specific client, or on all connected clients at once.
+It lets authorised players (and the server console) execute arbitrary Lua snippets on the server, on a specific client, or on all connected clients at once — either through a **built-in NUI panel** or the existing chat commands.
 
 > ⚠️ **For testing / development environments only.**  
 > Never run this resource on a public server — it can execute arbitrary code.
@@ -10,10 +10,22 @@ It lets authorised players (and the server console) execute arbitrary Lua snippe
 
 ## Features
 
+### NUI Injector Panel
+
+Press **F6** (re-bindable in FiveM key-binding settings, or use `/inject_ui`) to open the in-game panel:
+
+- **Code editor** – multi-line textarea with Tab support and character-count indicator
+- **Target selector** – *Local*, *Server*, *Client* (with player-ID input), *All Clients*
+- **Execute** with the **▶ Execute** button or **Ctrl + Enter**
+- **Output log** – inline success / failure feedback for every injection
+- **History sidebar** – shows recent injections; click any entry to load its code back into the editor
+- **Close** with the **✕** button or **Escape**
+
 ### Injection commands
 
 | Command | Side | Description |
 |---|---|---|
+| `/inject_ui` | Client | Toggle the NUI injector panel (also mapped to **F6**) |
 | `/inject_server <code>` | Server | Execute Lua on the server |
 | `/inject_client <id> <code>` | Server → Client | Execute Lua on a specific player's client |
 | `/inject_all <code>` | Server → All clients | Execute Lua on every connected client |
@@ -78,10 +90,24 @@ Edit `shared/config.lua` to change the defaults:
 | `Config.TrackTriggers` | `true` | Record `AddEventHandler`/`RegisterNetEvent` calls made by injected code |
 | `Config.HistoryMax` | `50` | Maximum injection records kept in memory (per side) |
 | `Config.HistoryPage` | `10` | Entries displayed per page in `*_history` commands |
+| `Config.NUIEnabled` | `true` | Enable the in-game NUI panel (`/inject_ui` / F6) |
 
 ---
 
 ## Usage examples
+
+### Using the NUI panel
+
+1. Press **F6** (or type `/inject_ui`) to open the panel.
+2. Select a **Target**: *Local*, *Server*, *Client*, or *All Clients*.
+   - For *Client*, enter the player's server ID in the **Player ID** field.
+3. Type or paste your Lua snippet in the code editor.
+4. Press **▶ Execute** or **Ctrl + Enter**.
+5. The **Output** area shows the result; the **History** sidebar lists all previous injections.
+6. Click any history entry to reload that code into the editor.
+7. Press **Escape** or the **✕** button to close the panel.
+
+### Chat / console commands
 
 ```lua
 -- Print all online player names to the server console
@@ -138,8 +164,12 @@ chilllixhub-inject/
 │   └── config.lua        – Shared configuration (loaded on server and clients)
 ├── server/
 │   └── main.lua          – Server-side injector commands & logic
-└── client/
-    └── main.lua          – Client-side injector command & event handler
+├── client/
+│   └── main.lua          – Client-side injector command, event handler & NUI callbacks
+└── html/
+    ├── index.html        – NUI panel markup
+    ├── style.css         – Dark-theme styles
+    └── script.js         – NUI logic (execute, history, close, Lua ↔ NUI messaging)
 ```
 
 ---
