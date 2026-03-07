@@ -26,3 +26,8 @@ Config.HistoryMax = 50
 
 -- Number of entries shown per page in /inject_history and /inject_history_local.
 Config.HistoryPage = 10
+
+-- Enable the in-game NUI panel.
+-- When true, the panel can be opened with the /inject_ui command or the
+-- default key mapping (F6, re-bindable via FiveM key-binding settings).
+Config.NUIEnabled = true

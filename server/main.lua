@@ -417,3 +417,67 @@ RegisterCommand('inject_active', function(source, args)
     end
 end, false)
 
+-- ─── NUI server event ─────────────────────────────────────────────────────────
+
+-- Triggered by a client when the NUI panel submits code for server / client /
+-- all-clients execution.  Requires the same ACE permission as the chat commands.
+RegisterNetEvent('chilllixhub-inject:nui_inject')
+AddEventHandler('chilllixhub-inject:nui_inject', function(injectType, code, targetId)
+    local source = source  -- capture upvalue before any yield
+
+    if not hasPermission(source) then
+        TriggerClientEvent('chilllixhub-inject:nui_result', source, false,
+            'No permission.', nil)
+        return
+    end
+
+    if type(code) ~= 'string' or #code == 0 then
+        TriggerClientEvent('chilllixhub-inject:nui_result', source, false,
+            'No code provided.', nil)
+        return
+    end
+    if #code > Config.MaxCodeLength then
+        TriggerClientEvent('chilllixhub-inject:nui_result', source, false,
+            ('Code too long (max %d chars).'):format(Config.MaxCodeLength), nil)
+        return
+    end
+
+    log(('NUI inject from player %s (id:%s) type:%s'):format(
+        GetPlayerName(tostring(source)), tostring(source), tostring(injectType)))
+
+    if injectType == 'server' then
+        local record = newRecord('server', source, code)
+        local ok, result = execLuaTracked(code, record)
+        if ok then
+            TriggerClientEvent('chilllixhub-inject:nui_result', source, true,
+                'Server inject OK.', record.id)
+        else
+            TriggerClientEvent('chilllixhub-inject:nui_result', source, false,
+                result, record.id)
+            log('NUI server inject failed: ' .. result)
+        end
+
+    elseif injectType == 'client' then
+        local tid = tonumber(targetId)
+        if not tid or not GetPlayerName(tostring(tid)) then
+            TriggerClientEvent('chilllixhub-inject:nui_result', source, false,
+                'Player ' .. tostring(targetId) .. ' not found.', nil)
+            return
+        end
+        local record = newRecord('client', source, code)
+        TriggerClientEvent('chilllixhub-inject:exec', tid, code)
+        TriggerClientEvent('chilllixhub-inject:nui_result', source, true,
+            ('Sent to client %d.'):format(tid), record.id)
+
+    elseif injectType == 'all' then
+        local record = newRecord('all', source, code)
+        TriggerClientEvent('chilllixhub-inject:exec', -1, code)
+        TriggerClientEvent('chilllixhub-inject:nui_result', source, true,
+            'Sent to all clients.', record.id)
+
+    else
+        TriggerClientEvent('chilllixhub-inject:nui_result', source, false,
+            'Unknown inject type: ' .. tostring(injectType), nil)
+    end
+end)
+
