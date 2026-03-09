@@ -361,3 +361,133 @@ AddEventHandler('chilllixhub-inject:nui_result', function(ok, msg, id)
     SendNUIMessage({ action = 'addResult', ok = ok, msg = msg, id = id })
 end)
 
+-- ─── Trigger Monitor ──────────────────────────────────────────────────────────
+
+local monitorActive  = false
+local monitorEntries = {}
+local monitorNextId  = 1
+
+--- Safely convert one value to a compact string for display in the monitor.
+local function serializeValue(v)
+    local t = type(v)
+    if t == 'nil'     then return 'nil' end
+    if t == 'boolean' then return tostring(v) end
+    if t == 'number'  then return tostring(v) end
+    if t == 'string'  then
+        -- Escape quotes first, then truncate the escaped result so we never
+        -- split an escape sequence at the boundary.
+        local escaped = v:gsub('"', '\\"')
+        if #escaped > 80 then escaped = escaped:sub(1, 80) .. '…' end
+        return '"' .. escaped .. '"'
+    end
+    local ok, enc = pcall(json.encode, v)
+    if ok and type(enc) == 'string' then
+        return #enc > 120 and enc:sub(1, 120) .. '…' or enc
+    end
+    return tostring(v)
+end
+
+--- Build a comma-separated argument list string from variadic args.
+local function serializeArgs(...)
+    local parts = {}
+    for i = 1, select('#', ...) do
+        parts[i] = serializeValue(select(i, ...))
+    end
+    return table.concat(parts, ', ')
+end
+
+--- Append one entry to the in-memory log and push it to the NUI if open.
+local function addMonitorEntry(direction, eventName, argsStr, srcInfo)
+    local entry = {
+        id    = monitorNextId,
+        time  = os.date('%H:%M:%S'),
+        dir   = direction,
+        event = eventName,
+        args  = argsStr or '',
+        src   = srcInfo  or '',
+    }
+    monitorEntries[#monitorEntries + 1] = entry
+    -- Trim the log to the configured maximum.
+    while #monitorEntries > Config.MonitorMax do
+        table.remove(monitorEntries, 1)
+    end
+    monitorNextId = monitorNextId + 1
+    if nuiOpen then
+        SendNUIMessage({ action = 'monitorEntry', entry = entry })
+    end
+end
+
+-- ── Hook the global trigger functions ────────────────────────────────────────
+-- We save the originals once and replace the globals with wrappers.
+-- The wrappers are always installed; the `monitorActive` flag gates recording
+-- so there is no measurable overhead when the monitor is off.
+
+local _origTSE  = TriggerServerEvent
+local _origTE   = TriggerEvent
+local _origTLSE = TriggerLatentServerEvent
+
+TriggerServerEvent = function(eventName, ...)
+    if monitorActive and type(eventName) == 'string' then
+        local ok, argsStr = pcall(serializeArgs, ...)
+        addMonitorEntry('→ server', eventName, ok and argsStr or '?')
+    end
+    return _origTSE(eventName, ...)
+end
+
+TriggerEvent = function(eventName, ...)
+    if monitorActive and type(eventName) == 'string' then
+        local ok, argsStr = pcall(serializeArgs, ...)
+        addMonitorEntry('↔ local', eventName, ok and argsStr or '?')
+    end
+    return _origTE(eventName, ...)
+end
+
+if _origTLSE then
+    TriggerLatentServerEvent = function(eventName, bps, ...)
+        if monitorActive and type(eventName) == 'string' then
+            local ok, argsStr = pcall(serializeArgs, ...)
+            addMonitorEntry('→ srv·latent', eventName, ok and argsStr or '?')
+        end
+        return _origTLSE(eventName, bps, ...)
+    end
+end
+
+-- ── NUI callbacks ─────────────────────────────────────────────────────────────
+
+RegisterNUICallback('startMonitor', function(_, cb)
+    monitorActive = true
+    -- Ask the server to start capturing events for us too.
+    _origTSE('chilllixhub-inject:monitorStart')
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('stopMonitor', function(_, cb)
+    monitorActive = false
+    _origTSE('chilllixhub-inject:monitorStop')
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('clearMonitor', function(_, cb)
+    monitorEntries = {}
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('getMonitorEntries', function(_, cb)
+    cb({ entries = monitorEntries })
+end)
+
+-- Receive server-relayed event entries while the monitor is active.
+AddEventHandler('chilllixhub-inject:monitorEvent', function(entry)
+    if type(entry) ~= 'table' then return end
+    entry.id  = monitorNextId
+    if not entry.dir then entry.dir = '← srv·recv' end
+    monitorEntries[#monitorEntries + 1] = entry
+    while #monitorEntries > Config.MonitorMax do
+        table.remove(monitorEntries, 1)
+    end
+    monitorNextId = monitorNextId + 1
+    if nuiOpen then
+        SendNUIMessage({ action = 'monitorEntry', entry = entry })
+    end
+end)
+

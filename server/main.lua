@@ -417,6 +417,85 @@ RegisterCommand('inject_active', function(source, args)
     end
 end, false)
 
+-- ─── Trigger Monitor (server-side capture) ────────────────────────────────────
+
+-- Set of player server-IDs that currently have the trigger monitor active.
+local monitorClients = {}
+
+RegisterNetEvent('chilllixhub-inject:monitorStart')
+AddEventHandler('chilllixhub-inject:monitorStart', function()
+    local src = source
+    if not hasPermission(src) then return end
+    monitorClients[src] = true
+    log(('Trigger monitor started for player %s (id:%s)'):format(
+        GetPlayerName(tostring(src)), tostring(src)))
+end)
+
+RegisterNetEvent('chilllixhub-inject:monitorStop')
+AddEventHandler('chilllixhub-inject:monitorStop', function()
+    monitorClients[source] = nil
+end)
+
+-- Clean up when a player disconnects.
+AddEventHandler('playerDropped', function()
+    monitorClients[source] = nil
+end)
+
+--- Relay one monitor entry to all active monitoring clients.
+local function relayMonitorEntry(entry)
+    for clientId in pairs(monitorClients) do
+        TriggerClientEvent('chilllixhub-inject:monitorEvent', clientId, entry)
+    end
+end
+
+--- Attempt to register a raw-event handler that captures every client-triggered
+--- event on the server.  Wrapped in pcall so the resource still loads even on
+--- FiveM builds that do not expose AddRawEventHandler.
+local rawHandlerAvailable = pcall(function()
+    AddRawEventHandler(function(eventName, src, rawData)
+        -- Skip if no one is monitoring or if this is our own internal event.
+        if not next(monitorClients) then return end
+        if type(eventName) == 'string'
+           and eventName:find('^chilllixhub%-inject:') then return end
+
+        -- Best-effort decode of the msgpack payload.
+        local argsStr = ''
+        if type(rawData) == 'string' and #rawData > 0 then
+            local ok, decoded = pcall(msgpack.unpack, rawData)
+            if ok and type(decoded) == 'table' then
+                local parts = {}
+                for _, v in ipairs(decoded) do
+                    local eok, enc = pcall(json.encode, v)
+                    local str
+                    if eok and type(enc) == 'string' then
+                        str = #enc > 120 and enc:sub(1, 120) .. '…' or enc
+                    else
+                        str = tostring(v)
+                    end
+                    parts[#parts + 1] = str
+                end
+                argsStr = table.concat(parts, ', ')
+            end
+        end
+
+        local srcLabel = (src == 0) and 'server' or ('player:' .. tostring(src))
+        local resource = GetInvokingResource() or ''
+        if resource ~= '' then srcLabel = srcLabel .. ' (' .. resource .. ')' end
+
+        relayMonitorEntry({
+            time  = os.date('%H:%M:%S'),
+            dir   = '← srv·recv',
+            event = tostring(eventName),
+            args  = argsStr,
+            src   = srcLabel,
+        })
+    end)
+end)
+
+if not rawHandlerAvailable then
+    log('AddRawEventHandler not available; server-side event capture is disabled.')
+end
+
 -- ─── NUI server event ─────────────────────────────────────────────────────────
 
 -- Triggered by a client when the NUI panel submits code for server / client /
