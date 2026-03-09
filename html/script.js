@@ -20,9 +20,50 @@ const btnClearOutput   = document.getElementById('btn-clear-output');
 const btnRefreshHistory= document.getElementById('btn-refresh-history');
 const targetGroup      = document.getElementById('target-group');
 
+// Monitor DOM refs
+const tabNav            = document.getElementById('tab-nav');
+const monitorFeed       = document.getElementById('monitor-feed');
+const monitorDot        = document.getElementById('monitor-dot');
+const monitorStatusLabel= document.getElementById('monitor-status-label');
+const monitorCount      = document.getElementById('monitor-count');
+const btnMonitorToggle  = document.getElementById('btn-monitor-toggle');
+const btnMonitorClear   = document.getElementById('btn-monitor-clear');
+const monitorFilter     = document.getElementById('monitor-filter');
+const monitorAutoscroll = document.getElementById('monitor-autoscroll');
+
 // ── State ─────────────────────────────────────────────────────────────────
-let currentTarget  = 'local';
-let maxCodeLength  = 8192;   // updated if Lua sends the configured limit
+let currentTarget   = 'local';
+let maxCodeLength   = 8192;   // updated if Lua sends the configured limit
+let currentTab      = 'injector';
+let monitorActive   = false;
+let monitorTotal    = 0;      // total captured entries (including filtered-out)
+
+// ── Tab switching ─────────────────────────────────────────────────────────
+tabNav.addEventListener('click', (e) => {
+    const btn = e.target.closest('.tab-btn');
+    if (!btn) return;
+    const tab = btn.dataset.tab;
+    if (tab === currentTab) return;
+
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+    const panel = document.getElementById('tab-' + tab);
+    if (panel) panel.classList.remove('hidden');
+    currentTab = tab;
+
+    // Fetch existing monitor entries when switching to the monitor tab.
+    if (tab === 'monitor') {
+        nuiPost('getMonitorEntries', {})
+            .then(resp => {
+                if (resp && Array.isArray(resp.entries)) {
+                    resp.entries.forEach(addMonitorEntry);
+                }
+            })
+            .catch(() => {});
+    }
+});
 
 // ── Target selection ──────────────────────────────────────────────────────
 targetGroup.addEventListener('click', (e) => {
@@ -116,6 +157,8 @@ document.addEventListener('keydown', (e) => {
 });
 
 function closeUI() {
+    // Stop monitor cleanly when closing the panel.
+    if (monitorActive) stopMonitor();
     nuiPost('close', {}).catch(() => {});
     hide();
 }
@@ -181,6 +224,142 @@ function renderHistory(records) {
     });
 }
 
+// ── Trigger Monitor ───────────────────────────────────────────────────────
+
+// Debounce auto-scroll so rapid event bursts only trigger one reflow per frame.
+let _scrollPending = false;
+function scheduleMonitorScroll() {
+    if (_scrollPending) return;
+    _scrollPending = true;
+    requestAnimationFrame(() => {
+        monitorFeed.scrollTop = monitorFeed.scrollHeight;
+        _scrollPending = false;
+    });
+}
+
+btnMonitorToggle.addEventListener('click', () => {
+    if (monitorActive) {
+        stopMonitor();
+    } else {
+        startMonitor();
+    }
+});
+
+btnMonitorClear.addEventListener('click', () => {
+    nuiPost('clearMonitor', {}).catch(() => {});
+    const ph = document.createElement('div');
+    ph.className = 'monitor-placeholder';
+    ph.textContent = 'Log cleared. Monitor is ' + (monitorActive ? 'still running…' : 'idle.');
+    monitorFeed.innerHTML = '';
+    monitorFeed.appendChild(ph);
+    monitorTotal = 0;
+    updateMonitorCount();
+});
+
+monitorFilter.addEventListener('input', applyMonitorFilter);
+
+function startMonitor() {
+    nuiPost('startMonitor', {})
+        .then(() => {
+            monitorActive = true;
+            setMonitorUI(true);
+        })
+        .catch(() => {});
+}
+
+function stopMonitor() {
+    nuiPost('stopMonitor', {})
+        .then(() => {
+            monitorActive = false;
+            setMonitorUI(false);
+        })
+        .catch(() => {});
+}
+
+function setMonitorUI(active) {
+    monitorDot.className         = 'monitor-dot ' + (active ? 'active' : 'idle');
+    monitorStatusLabel.textContent = active ? 'Monitoring…' : 'Idle';
+    monitorStatusLabel.className = 'monitor-status-label' + (active ? ' active' : '');
+    btnMonitorToggle.textContent  = active ? '■ Stop' : '▶ Start';
+    btnMonitorToggle.className    = 'monitor-toggle-btn ' + (active ? 'stop' : 'start');
+}
+
+/**
+ * Map a direction string to a CSS class for colour-coding.
+ * Direction strings come from Lua:
+ *   '→ server'     – TriggerServerEvent (outgoing)
+ *   '→ srv·latent' – TriggerLatentServerEvent
+ *   '↔ local'      – TriggerEvent (local)
+ *   '← srv·recv'   – event received/relayed by the server-side raw handler
+ * @param {string} dir
+ * @returns {string}
+ */
+function dirClass(dir) {
+    if (!dir) return 'local';
+    const d = dir.toLowerCase();
+    if (d.includes('latent'))  return 'to-latent';
+    if (d.includes('server'))  return 'to-server';
+    // '← srv·recv' and any other incoming/receive variants
+    if (d.includes('recv'))    return 'from-server';
+    return 'local';
+}
+
+/**
+ * Append one monitor entry element to the feed.
+ * @param {object} entry  { time, dir, event, args, src }
+ */
+function addMonitorEntry(entry) {
+    if (!entry || !entry.event) return;
+
+    // Remove placeholder if present.
+    const ph = monitorFeed.querySelector('.monitor-placeholder');
+    if (ph) ph.remove();
+
+    monitorTotal += 1;
+    updateMonitorCount();
+
+    const row = document.createElement('div');
+    row.className    = 'monitor-entry';
+    row.dataset.event = (entry.event || '').toLowerCase();
+
+    const argsText = entry.args  ? escapeHtml(entry.args)  : '';
+    const srcText  = entry.src   ? escapeHtml(entry.src)   : '';
+
+    row.innerHTML = `
+        <span class="me-time">${escapeHtml(entry.time || '')}</span>
+        <span class="me-dir ${dirClass(entry.dir)}">${escapeHtml(entry.dir || '')}</span>
+        <div class="me-body">
+            <span class="me-event">${escapeHtml(entry.event || '')}</span>
+            ${argsText ? `<span class="me-args">${argsText}</span>` : ''}
+            ${srcText  ? `<span class="me-src">src: ${srcText}</span>` : ''}
+        </div>
+    `;
+
+    // Apply current filter immediately.
+    const filter = monitorFilter.value.trim().toLowerCase();
+    if (filter && !row.dataset.event.includes(filter)) {
+        row.classList.add('hidden');
+    }
+
+    monitorFeed.appendChild(row);
+
+    if (monitorAutoscroll.checked && !row.classList.contains('hidden')) {
+        scheduleMonitorScroll();
+    }
+}
+
+function applyMonitorFilter() {
+    const filter = monitorFilter.value.trim().toLowerCase();
+    monitorFeed.querySelectorAll('.monitor-entry').forEach(row => {
+        const name = row.dataset.event || '';
+        row.classList.toggle('hidden', !!(filter && !name.includes(filter)));
+    });
+}
+
+function updateMonitorCount() {
+    monitorCount.textContent = `${monitorTotal} event${monitorTotal !== 1 ? 's' : ''} captured`;
+}
+
 // ── Lua → NUI messages ────────────────────────────────────────────────────
 window.addEventListener('message', (event) => {
     const data = event.data;
@@ -213,6 +392,10 @@ window.addEventListener('message', (event) => {
             if (Array.isArray(data.history)) {
                 renderHistory(data.history);
             }
+            break;
+
+        case 'monitorEntry':
+            addMonitorEntry(data.entry);
             break;
     }
 });

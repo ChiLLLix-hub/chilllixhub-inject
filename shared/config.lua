@@ -31,3 +31,7 @@ Config.HistoryPage = 10
 -- When true, the panel can be opened with the /inject_ui command or the
 -- default key mapping (F6, re-bindable via FiveM key-binding settings).
 Config.NUIEnabled = true
+
+-- Maximum number of entries kept in the Trigger Monitor log (NUI panel).
+-- Oldest entries are dropped when this limit is reached.
+Config.MonitorMax = 200
