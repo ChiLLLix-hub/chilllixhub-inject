@@ -298,10 +298,11 @@ function refreshMonitorEntries() {
 /**
  * Map a direction string to a CSS class for colour-coding.
  * Direction strings come from Lua:
- *   '→ server'     – TriggerServerEvent (outgoing)
- *   '→ srv·latent' – TriggerLatentServerEvent
- *   '↔ local'      – TriggerEvent (local)
- *   '← srv·recv'   – event received/relayed by the server-side raw handler
+ *   '→ server'      – TriggerServerEvent (outgoing)
+ *   '→ srv·latent'  – TriggerLatentServerEvent
+ *   '↔ local'       – TriggerEvent (local)
+ *   '← srv·recv'    – event received/relayed by the server-side raw handler
+ *   '← client·recv' – event received by client-side raw handler (TriggerClientEvent)
  * @param {string} dir
  * @returns {string}
  */
@@ -310,7 +311,7 @@ function dirClass(dir) {
     const d = dir.toLowerCase();
     if (d.includes('latent'))  return 'to-latent';
     if (d.includes('server'))  return 'to-server';
-    // '← srv·recv' and any other incoming/receive variants
+    // '← srv·recv' and '← client·recv' and any other incoming/receive variants
     if (d.includes('recv'))    return 'from-server';
     return 'local';
 }
@@ -380,6 +381,13 @@ window.addEventListener('message', (event) => {
 
         case 'setVisible':
             if (data.visible) {
+                // Sync monitor active state from Lua (authoritative source).
+                // This keeps the JS flag in sync even after a resource restart
+                // where Lua resets to false but the NUI page was not reloaded.
+                if (typeof data.monitorActive === 'boolean') {
+                    monitorActive = data.monitorActive;
+                    setMonitorUI(monitorActive);
+                }
                 show();
                 if (data.maxCodeLength) {
                     maxCodeLength = data.maxCodeLength;

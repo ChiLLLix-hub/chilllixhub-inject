@@ -264,16 +264,24 @@ end, false)
 
 if not Config.NUIEnabled then return end
 
-local nuiOpen = false
+local nuiOpen        = false
+
+-- Trigger Monitor state – declared here so setNuiVisible (below) can include
+-- the current monitorActive value in the setVisible message, keeping the NUI
+-- in sync with Lua even after a resource restart.
+local monitorActive  = false
+local monitorEntries = {}
+local monitorNextId  = 1
 
 --- Open or close the NUI injector panel.
 local function setNuiVisible(visible)
     nuiOpen = visible
     SetNuiFocus(visible, visible)
     SendNUIMessage({
-        action       = 'setVisible',
-        visible      = visible,
+        action        = 'setVisible',
+        visible       = visible,
         maxCodeLength = Config.MaxCodeLength,
+        monitorActive = monitorActive,
     })
 end
 
@@ -362,10 +370,6 @@ AddEventHandler('chilllixhub-inject:nui_result', function(ok, msg, id)
 end)
 
 -- ─── Trigger Monitor ──────────────────────────────────────────────────────────
-
-local monitorActive  = false
-local monitorEntries = {}
-local monitorNextId  = 1
 
 --- Safely convert one value to a compact string for display in the monitor.
 local function serializeValue(v)
@@ -490,4 +494,43 @@ AddEventHandler('chilllixhub-inject:monitorEvent', function(entry)
         SendNUIMessage({ action = 'monitorEntry', entry = entry })
     end
 end)
+
+-- ── Capture incoming events from the server (TriggerClientEvent) ──────────────
+-- Wrapped in pcall so the resource still loads on builds that do not expose
+-- the client-side AddRawEventHandler.
+local clientRawHandlerAvailable = pcall(function()
+    AddRawEventHandler(function(eventName, rawData)
+        if not monitorActive then return end
+        if type(eventName) ~= 'string' then return end
+        -- Skip our own internal events to prevent noise.
+        if eventName:find('^chilllixhub%-inject:') then return end
+
+        -- Best-effort decode of the msgpack payload (truncate at 120 chars to
+        -- match the server-side display limit and avoid flooding the feed).
+        local argsStr = ''
+        if type(rawData) == 'string' and #rawData > 0 then
+            local ok, decoded = pcall(msgpack.unpack, rawData)
+            if ok and type(decoded) == 'table' then
+                local parts = {}
+                for _, v in ipairs(decoded) do
+                    local eok, enc = pcall(json.encode, v)
+                    local str
+                    if eok and type(enc) == 'string' then
+                        str = #enc > 120 and enc:sub(1, 120) .. '…' or enc
+                    else
+                        str = tostring(v)
+                    end
+                    parts[#parts + 1] = str
+                end
+                argsStr = table.concat(parts, ', ')
+            end
+        end
+
+        addMonitorEntry('← client·recv', eventName, argsStr)
+    end)
+end)
+
+if not clientRawHandlerAvailable then
+    log('AddRawEventHandler not available on client; incoming-event capture is disabled.')
+end
 
