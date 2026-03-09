@@ -39,30 +39,25 @@ let monitorActive   = false;
 let monitorTotal    = 0;      // total captured entries (including filtered-out)
 
 // ── Tab switching ─────────────────────────────────────────────────────────
+
+/** Programmatically activate a tab by name, reloading monitor entries if needed. */
+function switchTab(tab) {
+    document.querySelectorAll('.tab-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.tab === tab);
+    });
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+    const panel = document.getElementById('tab-' + tab);
+    if (panel) panel.classList.remove('hidden');
+    currentTab = tab;
+    if (tab === 'monitor') refreshMonitorEntries();
+}
+
 tabNav.addEventListener('click', (e) => {
     const btn = e.target.closest('.tab-btn');
     if (!btn) return;
     const tab = btn.dataset.tab;
     if (tab === currentTab) return;
-
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
-    const panel = document.getElementById('tab-' + tab);
-    if (panel) panel.classList.remove('hidden');
-    currentTab = tab;
-
-    // Fetch existing monitor entries when switching to the monitor tab.
-    if (tab === 'monitor') {
-        nuiPost('getMonitorEntries', {})
-            .then(resp => {
-                if (resp && Array.isArray(resp.entries)) {
-                    resp.entries.forEach(addMonitorEntry);
-                }
-            })
-            .catch(() => {});
-    }
+    switchTab(tab);
 });
 
 // ── Target selection ──────────────────────────────────────────────────────
@@ -157,8 +152,6 @@ document.addEventListener('keydown', (e) => {
 });
 
 function closeUI() {
-    // Stop monitor cleanly when closing the panel.
-    if (monitorActive) stopMonitor();
     nuiPost('close', {}).catch(() => {});
     hide();
 }
@@ -263,6 +256,9 @@ function startMonitor() {
         .then(() => {
             monitorActive = true;
             setMonitorUI(true);
+            // Close the NUI so monitoring runs in the background of the game.
+            nuiPost('close', {}).catch(() => {});
+            hide();
         })
         .catch(() => {});
 }
@@ -282,6 +278,21 @@ function setMonitorUI(active) {
     monitorStatusLabel.className = 'monitor-status-label' + (active ? ' active' : '');
     btnMonitorToggle.textContent  = active ? '■ Stop' : '▶ Start';
     btnMonitorToggle.className    = 'monitor-toggle-btn ' + (active ? 'stop' : 'start');
+}
+
+/**
+ * Clear the monitor feed and reload all accumulated entries from Lua.
+ */
+function refreshMonitorEntries() {
+    nuiPost('getMonitorEntries', {})
+        .then(resp => {
+            if (resp && Array.isArray(resp.entries)) {
+                monitorFeed.innerHTML = '';
+                monitorTotal = 0;
+                resp.entries.forEach(addMonitorEntry);
+            }
+        })
+        .catch(() => {});
 }
 
 /**
@@ -375,6 +386,11 @@ window.addEventListener('message', (event) => {
                     updateCounter();
                 }
                 refreshHistory();
+                // If monitoring is running in the background, switch directly to
+                // the Monitor tab so the user can see accumulated entries.
+                if (monitorActive) {
+                    switchTab('monitor');
+                }
             } else {
                 hide();
             }
